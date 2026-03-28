@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""محرك حقن البيانات في القالب وتوليد الكراس"""
+"""محرك حقن البيانات في القالب"""
 
 from io import BytesIO
 from docx import Document
-from .schedule import ROUTINE_ACTIVITIES
+from .schedule import ROUTINE_ACTIVITIES, DOMAIN_MAPPING
 
 
 def _safe_replace(paragraph, old, new):
@@ -31,9 +31,7 @@ def build_daily_planner_bytes(
 ) -> tuple:
     """
     بناء كراس يوم واحد
-
-    Returns:
-        (bytes_الكراس, قائمة_الحصص, قائمة_التحذيرات)
+    Returns: (bytes, sessions_info, warnings)
     """
     plan = schedule.get(day, [])
     if not plan:
@@ -42,80 +40,87 @@ def build_daily_planner_bytes(
     doc = Document(BytesIO(template_bytes))
 
     replacements = {
-        "{{اليوم}}": day,
-        "{{التاريخ}}": date_str,
-        "{{الأسبوع}}": week_num,
+        "{{اليوم}}":    day,
+        "{{التاريخ}}":  date_str,
+        "{{الأسبوع}}":  week_num,
     }
 
     sessions_info = []
     warnings = []
 
     for i, session in enumerate(plan, 1):
-        act = session["النشاط"]
-        dur = session["المدة"]
-        period = session.get("الفترة", "")
+        act  = session["النشاط"]
+        dur  = session["المدة"]
+        per  = session.get("الفترة", "")
 
-        k_act = f"{{{{نشاط_{i}}}}}"
-        k_top = f"{{{{موضوع_{i}}}}}"
-        k_ind = f"{{{{كفاءة_{i}}}}}"
-        k_dur = f"{{{{مدة_{i}}}}}"
-        k_fld = f"{{{{ميدان_{i}}}}}"
+        # مفاتيح القالب
+        k = {
+            'نشاط':  f"{{{{نشاط_{i}}}}}",
+            'موضوع': f"{{{{موضوع_{i}}}}}",
+            'كفاءة': f"{{{{كفاءة_{i}}}}}",
+            'مدة':   f"{{{{مدة_{i}}}}}",
+            'ميدان': f"{{{{ميدان_{i}}}}}",
+        }
 
-        replacements[k_dur] = dur
-        replacements[k_act] = act
+        replacements[k['مدة']]  = dur
+        replacements[k['نشاط']] = act
+
+        # المجال التعليمي
+        domain = DOMAIN_MAPPING.get(act, "—")
 
         info = {
             "رقم": i,
             "النشاط": act,
             "المدة": dur,
-            "الفترة": period,
+            "الفترة": per,
+            "المجال": domain,
             "نوع": "روتيني",
             "الموضوع": "—",
             "الكفاءة": "—",
         }
 
         if act in ROUTINE_ACTIVITIES:
-            replacements[k_top] = "—"
-            replacements[k_ind] = "—"
-            replacements[k_fld] = "—"
+            replacements[k['موضوع']] = "—"
+            replacements[k['كفاءة']] = "—"
+            replacements[k['ميدان']] = "—"
 
         elif act in lessons_db and lessons_db[act]:
             lesson = lessons_db[act].pop(0)
             topic = lesson.get('موضوع', '—')
             indic = lesson.get('كفاءة', '—')
 
-            replacements[k_top] = topic
-            replacements[k_ind] = indic
-            replacements[k_fld] = act
+            replacements[k['موضوع']] = topic
+            replacements[k['كفاءة']] = indic
+            replacements[k['ميدان']] = domain
 
-            info["نوع"] = "تعليمي"
+            info["نوع"]     = "تعليمي"
             info["الموضوع"] = topic
             info["الكفاءة"] = indic
 
         else:
-            replacements[k_top] = "⚠ لا توجد مذكرة"
-            replacements[k_ind] = "⚠ لا توجد مذكرة"
-            replacements[k_fld] = act
+            replacements[k['موضوع']] = "⚠ لا توجد مذكرة"
+            replacements[k['كفاءة']] = "⚠ لا توجد مذكرة"
+            replacements[k['ميدان']] = domain
             info["نوع"] = "ناقص"
             warnings.append(act)
 
         sessions_info.append(info)
 
-    # الحقن
+    # الحقن في الجداول
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for para in cell.paragraphs:
-                    for k, v in replacements.items():
-                        if k in para.text:
-                            _safe_replace(para, k, str(v))
+                    for key, val in replacements.items():
+                        if key in para.text:
+                            _safe_replace(para, key, str(val))
 
+    # الحقن في الفقرات
     for para in doc.paragraphs:
-        for k, v in replacements.items():
-            if k in para.text:
-                _safe_replace(para, k, str(v))
+        for key, val in replacements.items():
+            if key in para.text:
+                _safe_replace(para, key, str(val))
 
     buf = BytesIO()
     doc.save(buf)
-
     return buf.getvalue(), sessions_info, warnings
