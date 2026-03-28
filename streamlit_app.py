@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
-"""
-🎓 الكراس اليومي - قسم التحضيري
-تطبيق Streamlit لأتمتة إعداد الكراس اليومي
-"""
+"""🎓 الكراس اليومي — قسم التحضيري"""
 
 import streamlit as st
 import copy
 from engine import (
     weekly_schedule,
     ROUTINE_ACTIVITIES,
+    DOMAIN_MAPPING,
+    SUBJECT_WEEKLY_COUNT,
     extract_all_lessons,
     create_template_bytes,
     build_daily_planner_bytes,
+    get_all_teaching_subjects,
+    get_domain_for,
 )
-from engine.schedule import get_all_teaching_subjects
+from engine.schedule import verify_schedule
 
 # ═══════════════════════════════════════
-#  إعدادات الصفحة
+#  Page Config
 # ═══════════════════════════════════════
 
 st.set_page_config(
@@ -27,123 +28,99 @@ st.set_page_config(
 )
 
 # ═══════════════════════════════════════
-#  CSS مخصص للعربية
+#  CSS
 # ═══════════════════════════════════════
 
 st.markdown("""
 <style>
-    /* اتجاه عربي */
     .main .block-container {
         direction: rtl;
         text-align: right;
     }
-
-    /* العناوين */
     h1, h2, h3 {
         text-align: center !important;
-        font-family: 'Sakkal Majalla', 'Arial', sans-serif !important;
     }
 
-    /* بطاقات */
-    .metric-card {
-        background: linear-gradient(135deg, #1F4E79, #2E75B6);
-        color: white;
-        padding: 1.2rem;
+    /* بطاقات ملونة */
+    .card {
+        padding: 1rem 1.2rem;
         border-radius: 12px;
         text-align: center;
-        margin: 0.5rem 0;
-        box-shadow: 0 4px 15px rgba(31, 78, 121, 0.3);
+        margin: 0.4rem 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
-    .metric-card h3 {
-        color: white !important;
-        margin: 0;
-        font-size: 1rem;
+    .card h4 { margin: 0 0 0.3rem 0; font-size: 0.9rem; }
+    .card .num { font-size: 2rem; font-weight: 700; }
+    .card-blue  { background: linear-gradient(135deg,#1F4E79,#2E75B6); color:#fff; }
+    .card-green { background: linear-gradient(135deg,#2E7D32,#43A047); color:#fff; }
+    .card-amber { background: linear-gradient(135deg,#E65100,#FF9800); color:#fff; }
+    .card-purple{ background: linear-gradient(135deg,#4A148C,#7B1FA2); color:#fff; }
+
+    /* حصة */
+    .slot {
+        display: flex; align-items: center; gap: 0.8rem;
+        padding: 0.7rem 1rem; margin: 0.3rem 0;
+        border-radius: 8px; direction: rtl;
     }
-    .metric-card .number {
-        font-size: 2.2rem;
-        font-weight: bold;
-        margin: 0.3rem 0;
+    .slot-routine { background:#f5f5f5; border-right:4px solid #9e9e9e; }
+    .slot-teach   { background:#e3f2fd; border-right:4px solid #1565c0; }
+    .slot-warn    { background:#fff3e0; border-right:4px solid #e65100; }
+
+    /* مجال */
+    .domain-badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
     }
 
-    /* جدول الحصص */
-    .session-row {
-        display: flex;
-        align-items: center;
-        padding: 0.6rem 1rem;
-        margin: 0.3rem 0;
-        border-radius: 8px;
-        direction: rtl;
-        gap: 1rem;
-    }
-    .session-routine {
-        background: #f0f2f6;
-        border-right: 4px solid #9e9e9e;
-    }
-    .session-teach {
-        background: #e8f4fd;
-        border-right: 4px solid #1F4E79;
-    }
-    .session-warn {
-        background: #fff3e0;
-        border-right: 4px solid #ff9800;
-    }
-
-    /* الشريط الجانبي */
-    .css-1d391kg, [data-testid="stSidebar"] {
-        direction: rtl;
-        text-align: right;
-    }
-
-    /* أزرار التحميل */
     .stDownloadButton > button {
         width: 100%;
-        background: linear-gradient(135deg, #1F4E79, #2E75B6) !important;
-        color: white !important;
-        border: none !important;
+        background: linear-gradient(135deg,#1F4E79,#2E75B6) !important;
+        color: #fff !important; border: none !important;
         border-radius: 8px !important;
-        padding: 0.7rem !important;
-        font-size: 1rem !important;
-        transition: transform 0.2s !important;
     }
     .stDownloadButton > button:hover {
         transform: scale(1.02) !important;
     }
 
-    /* الـ Expander */
-    .streamlit-expanderHeader {
-        direction: rtl;
-        text-align: right;
-        font-size: 1.1rem;
-    }
+    [data-testid="stSidebar"] { direction: rtl; text-align: right; }
+    footer { visibility: hidden; }
 
-    /* تحسين المظهر العام */
-    .success-box {
-        background: #e8f5e9;
-        border: 1px solid #4caf50;
-        border-radius: 10px;
-        padding: 1rem;
-        text-align: center;
-        margin: 1rem 0;
-    }
-
-    /* إخفاء footer */
-    footer {visibility: hidden;}
-
-    /* تنسيق الـ tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        direction: rtl;
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        font-size: 1rem;
-        font-weight: 600;
+    .ok-box {
+        background: #e8f5e9; border: 1px solid #4caf50;
+        border-radius: 10px; padding: 1rem; text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════
-#  الحالة (Session State)
+#  ألوان المجالات
+# ═══════════════════════════════════════
+
+DOMAIN_COLORS = {
+    "المجال اللغوي":                "#1565C0",
+    "المجال الرياضي":               "#C62828",
+    "المجال العلمي":                "#2E7D32",
+    "المجال الاجتماعي":             "#F57F17",
+    "المجال الفني":                 "#6A1B9A",
+    "المجال البدني والإيقاعي":      "#00838F",
+}
+
+
+def domain_badge(domain):
+    color = DOMAIN_COLORS.get(domain, "#666")
+    return (
+        f'<span class="domain-badge" '
+        f'style="background:{color}22;color:{color};'
+        f'border:1px solid {color}44;">{domain}</span>'
+    )
+
+
+# ═══════════════════════════════════════
+#  Session State
 # ═══════════════════════════════════════
 
 if 'lessons_db' not in st.session_state:
@@ -162,38 +139,22 @@ with st.sidebar:
     st.markdown("## ⚙️ الإعدادات")
     st.markdown("---")
 
-    # رقم الأسبوع
-    week_num = st.text_input(
-        "📅 رقم الأسبوع",
-        placeholder="مثال: 10",
-        key="week_num"
-    )
-
-    # التاريخ
-    date_str = st.text_input(
-        "📆 التاريخ",
-        placeholder="مثال: 2024/12/01",
-        key="date_str"
-    )
+    week_num = st.text_input("📅 رقم الأسبوع", placeholder="10")
+    date_str = st.text_input("📆 التاريخ", placeholder="2024/12/01")
 
     st.markdown("---")
-
-    # رفع ملف المذكرات
-    st.markdown("### 📤 رفع ملف المذكرات")
+    st.markdown("### 📤 ملف المذكرات")
     uploaded = st.file_uploader(
-        "اختر ملف المذكرات (.docx)",
+        "اختر ملف .docx",
         type=["docx"],
-        help="ارفع ملف المذكرات الأسبوعية بصيغة Word",
-        key="memo_upload"
+        help="ارفع ملف المذكرات الأسبوعية",
     )
 
     st.markdown("---")
-
-    # تحميل القالب الفارغ
-    st.markdown("### 📥 تحميل القالب")
-    if st.button("🔨 إنشاء القالب", use_container_width=True):
+    st.markdown("### 📥 القالب")
+    if st.button("🔨 إنشاء قالب جديد", use_container_width=True):
         st.session_state.template_bytes = create_template_bytes()
-        st.success("✅ تم إنشاء القالب!")
+        st.success("✅ تم!")
 
     if st.session_state.template_bytes:
         st.download_button(
@@ -206,86 +167,79 @@ with st.sidebar:
         )
 
     st.markdown("---")
-    st.markdown("""
-    <div style="text-align:center; color:#666; font-size:0.85rem;">
-        🎓 الكراس اليومي v2.0<br>
-        قسم التحضيري
-    </div>
-    """, unsafe_allow_html=True)
+
+    # التحقق من التوقيت
+    errors, counts = verify_schedule()
+    if errors:
+        st.error("❌ خلل في التوقيت!")
+        for e in errors:
+            st.text(e)
+    else:
+        st.success(f"✅ التوقيت سليم ({sum(counts.values())} حصة)")
+
+    st.caption("🎓 الكراس اليومي v3.0")
 
 
 # ═══════════════════════════════════════
-#  المحتوى الرئيسي
+#  معالجة الرفع
 # ═══════════════════════════════════════
 
-st.markdown("""
-<h1 style="
-    background: linear-gradient(135deg, #1F4E79, #2E75B6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-size: 2.5rem;
-    margin-bottom: 0;
-">🎓 الكراس اليومي</h1>
-<p style="text-align:center; color:#666; font-size:1.1rem;">
-    أتمتة إعداد الكراس اليومي لقسم التحضيري
-</p>
-""", unsafe_allow_html=True)
-
-
-# ── معالجة رفع الملف ──
 if uploaded:
     file_bytes = uploaded.read()
-
-    # استخراج تلقائي عند رفع ملف جديد
-    if (st.session_state.get('_last_file') != uploaded.name):
-        with st.spinner("⏳ جارٍ استخراج الدروس..."):
+    if st.session_state.get('_last') != uploaded.name:
+        with st.spinner("⏳ جارٍ الاستخراج..."):
             db = extract_all_lessons(file_bytes)
             st.session_state.lessons_db = db
-            st.session_state._last_file = uploaded.name
+            st.session_state._last = uploaded.name
             st.session_state.generated_files = {}
-
         if db:
-            st.toast("✅ تم استخراج الدروس بنجاح!", icon="📚")
+            st.toast("✅ تم استخراج الدروس!", icon="📚")
         else:
-            st.error("❌ لم يتم العثور على دروس في الملف!")
+            st.error("❌ لم يتم العثور على دروس!")
 
-    # إنشاء القالب تلقائياً إذا لم يكن موجوداً
     if not st.session_state.template_bytes:
         st.session_state.template_bytes = create_template_bytes()
 
 
 # ═══════════════════════════════════════
-#  التبويبات الرئيسية
+#  العنوان الرئيسي
 # ═══════════════════════════════════════
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📚 الدروس المستخرجة",
-    "📅 توليد الكراسات",
-    "👁️ المعاينة",
-    "📊 التوقيت الأسبوعي",
+st.markdown("""
+<h1 style="background:linear-gradient(135deg,#1F4E79,#2E75B6);
+-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+font-size:2.5rem;">🎓 الكراس اليومي</h1>
+<p style="text-align:center;color:#888;">
+أتمتة إعداد الكراس اليومي — قسم التحضيري
+</p>
+""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════
+#  التبويبات
+# ═══════════════════════════════════════
+
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📚 الدروس",
+    "📅 توليد",
+    "👁️ معاينة",
+    "📊 التوقيت",
+    "🗺️ المجالات",
 ])
 
 
-# ══════════════════════════════════════════════
-#  التبويب 1: عرض الدروس المستخرجة
-# ══════════════════════════════════════════════
+# ──────────────────────────────────────
+#  تبويب 1: الدروس المستخرجة
+# ──────────────────────────────────────
 
 with tab1:
     db = st.session_state.lessons_db
 
     if not db:
-        st.info("👆 ارفع ملف المذكرات من الشريط الجانبي للبدء")
-
-        # عرض تعليمات
-        with st.expander("📖 كيف يعمل التطبيق؟"):
+        st.info("👆 ارفع ملف المذكرات من الشريط الجانبي")
+        with st.expander("📖 تعليمات"):
             st.markdown("""
-            ### خطوات الاستخدام:
-            1. **ارفع** ملف المذكرات الأسبوعية من الشريط الجانبي
-            2. **راجع** الدروس المستخرجة في هذا التبويب
-            3. **اختر** الأيام المطلوبة من تبويب "توليد الكراسات"
-            4. **حمّل** الملفات الجاهزة
-
-            ### الأنماط المطلوبة في المذكرات:
+            **الأنماط المطلوبة في ملف المذكرات:**
             ```
             النشاط : تعبير شفوي
             الموضوع : الصفات
@@ -293,331 +247,339 @@ with tab1:
             ```
             """)
     else:
-        # إحصائيات
-        total_lessons = sum(len(v) for v in db.values())
-        total_subjects = len(db)
-        schedule_subjects = get_all_teaching_subjects()
-        matched = schedule_subjects & set(db.keys())
-        missing = schedule_subjects - set(db.keys())
+        total = sum(len(v) for v in db.values())
+        subjects = get_all_teaching_subjects()
+        matched = subjects & set(db.keys())
+        missing = subjects - set(db.keys())
 
-        # بطاقات الإحصائيات
         c1, c2, c3, c4 = st.columns(4)
+        cards = [
+            (c1, "📘 المواد", len(db), "card-blue"),
+            (c2, "📖 الدروس", total, "card-green"),
+            (c3, "✅ متطابقة", len(matched), "card-purple"),
+            (c4, "⚠ ناقصة", len(missing), "card-amber"),
+        ]
+        for col, title, num, cls in cards:
+            with col:
+                st.markdown(
+                    f'<div class="card {cls}">'
+                    f'<h4>{title}</h4>'
+                    f'<div class="num">{num}</div></div>',
+                    unsafe_allow_html=True,
+                )
 
-        with c1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3>📘 المواد</h3>
-                <div class="number">{total_subjects}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with c2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3>📖 الدروس</h3>
-                <div class="number">{total_lessons}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with c3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3>✅ متطابقة</h3>
-                <div class="number">{len(matched)}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with c4:
-            color = "#ff9800" if missing else "#4caf50"
-            st.markdown(f"""
-            <div class="metric-card"
-                 style="background:linear-gradient(135deg,
-                        {color}, {color}dd);">
-                <h3>⚠ ناقصة</h3>
-                <div class="number">{len(missing)}</div>
-            </div>
-            """, unsafe_allow_html=True)
+        if missing:
+            st.warning(
+                f"⚠️ مواد ناقصة: **{' ، '.join(missing)}**\n\n"
+                "عدّل NAME_MAPPING أو أضفها للمذكرات"
+            )
 
         st.markdown("---")
 
-        # تحذير المواد الناقصة
-        if missing:
-            st.warning(
-                f"⚠️ مواد في التوقيت لم توجد في المذكرات: "
-                f"**{' ، '.join(missing)}**"
-            )
-
-        # عرض الدروس حسب المادة
-        for subject in sorted(db.keys()):
-            lessons = db[subject]
-            icon = "✅" if subject in schedule_subjects else "ℹ️"
+        for subj in sorted(db.keys()):
+            lessons = db[subj]
+            domain = get_domain_for(subj)
+            icon = "✅" if subj in subjects else "ℹ️"
 
             with st.expander(
-                f"{icon} {subject} — {len(lessons)} درس",
-                expanded=False
+                f"{icon} {subj} — {len(lessons)} درس — {domain}"
             ):
-                for j, lesson in enumerate(lessons, 1):
-                    topic = lesson.get('موضوع', '—')
-                    indic = lesson.get('كفاءة', '—')
-
-                    st.markdown(f"""
-                    **الدرس {j}:**
-                    - 📝 الموضوع: `{topic}`
-                    - 🎯 الكفاءة: `{indic}`
-                    """)
+                for j, les in enumerate(lessons, 1):
+                    st.markdown(
+                        f"**{j}.** 📝 {les.get('موضوع','—')}\n\n"
+                        f"🎯 {les.get('كفاءة','—')}"
+                    )
                     if j < len(lessons):
                         st.divider()
 
 
-# ══════════════════════════════════════════════
-#  التبويب 2: توليد الكراسات
-# ══════════════════════════════════════════════
+# ──────────────────────────────────────
+#  تبويب 2: توليد الكراسات
+# ──────────────────────────────────────
 
 with tab2:
     db = st.session_state.lessons_db
 
     if not db:
-        st.info("👆 ارفع ملف المذكرات أولاً")
+        st.info("👆 ارفع المذكرات أولاً")
     else:
-        st.markdown("### 📅 اختر الأيام لتوليد الكراسات")
+        st.markdown("### 📅 اختر الأيام")
 
         days = list(weekly_schedule.keys())
+        cols = st.columns(len(days))
+        selected = []
 
-        col_days = st.columns(len(days))
-        selected_days = []
-        for i, day in enumerate(days):
-            with col_days[i]:
-                count = len(weekly_schedule[day])
-                if st.checkbox(
-                    f"{day}\n({count} حصة)",
-                    key=f"day_{day}"
-                ):
-                    selected_days.append(day)
+        for i, d in enumerate(days):
+            plan = weekly_schedule[d]
+            teach_count = sum(
+                1 for s in plan if s["النشاط"] not in ROUTINE_ACTIVITIES
+            )
+            has_evening = any(
+                s.get("الفترة") == "مسائية" for s in plan
+            )
+            label = f"{d}\n({teach_count} حصة)"
+            if not has_evening:
+                label += "\n☀ صباح فقط"
 
-        # زر تحديد الكل
-        if st.checkbox("✅ تحديد الكل", key="select_all"):
-            selected_days = days
+            with cols[i]:
+                if st.checkbox(label, key=f"d_{d}"):
+                    selected.append(d)
+
+        all_check = st.checkbox("✅ الكل")
+        if all_check:
+            selected = days
 
         st.markdown("---")
 
-        if selected_days:
-            if st.button(
-                f"🚀 توليد {len(selected_days)} كراس",
-                type="primary",
-                use_container_width=True,
-            ):
-                template = st.session_state.template_bytes
-                if not template:
-                    template = create_template_bytes()
-                    st.session_state.template_bytes = template
+        if selected and st.button(
+            f"🚀 توليد {len(selected)} كراس",
+            type="primary",
+            use_container_width=True,
+        ):
+            tmpl = st.session_state.template_bytes
+            if not tmpl:
+                tmpl = create_template_bytes()
+                st.session_state.template_bytes = tmpl
 
-                working_db = copy.deepcopy(db)
-                generated = {}
-                progress = st.progress(0)
-                status = st.empty()
+            wdb = copy.deepcopy(db)
+            gen = {}
+            bar = st.progress(0)
+            msg = st.empty()
 
-                for idx, day in enumerate(selected_days):
-                    status.text(f"⏳ جارٍ توليد كراس {day}...")
-                    progress.progress(
-                        (idx) / len(selected_days)
-                    )
+            for idx, d in enumerate(selected):
+                msg.text(f"⏳ {d}...")
+                bar.progress(idx / len(selected))
 
-                    result, sessions, warns = build_daily_planner_bytes(
-                        day=day,
-                        template_bytes=template,
-                        schedule=weekly_schedule,
-                        lessons_db=working_db,
-                        week_num=week_num,
-                        date_str=date_str,
-                    )
+                result, info, warns = build_daily_planner_bytes(
+                    day=d,
+                    template_bytes=tmpl,
+                    schedule=weekly_schedule,
+                    lessons_db=wdb,
+                    week_num=week_num,
+                    date_str=date_str,
+                )
+                if result:
+                    gen[d] = {
+                        'bytes': result,
+                        'sessions': info,
+                        'warnings': warns,
+                    }
 
-                    if result:
-                        generated[day] = {
-                            'bytes': result,
-                            'sessions': sessions,
-                            'warnings': warns,
-                        }
+            bar.progress(1.0)
+            msg.empty()
+            st.session_state.generated_files = gen
 
-                progress.progress(1.0)
-                status.empty()
-
-                st.session_state.generated_files = generated
-
-                st.markdown(f"""
-                <div class="success-box">
-                    <h3>✅ تم بنجاح!</h3>
-                    <p>تم توليد {len(generated)} كراس جاهز للتحميل</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-        # عرض أزرار التحميل
-        if st.session_state.generated_files:
-            st.markdown("### 📥 تحميل الكراسات")
-
-            cols = st.columns(
-                min(len(st.session_state.generated_files), 3)
+            st.markdown(
+                f'<div class="ok-box"><h3>✅ تم توليد '
+                f'{len(gen)} كراس!</h3></div>',
+                unsafe_allow_html=True,
             )
 
-            for i, (day, data) in enumerate(
-                st.session_state.generated_files.items()
-            ):
-                with cols[i % 3]:
-                    warns = data.get('warnings', [])
-                    icon = "⚠️" if warns else "📄"
-
+        # أزرار التحميل
+        gf = st.session_state.generated_files
+        if gf:
+            st.markdown("### 📥 التحميل")
+            dl_cols = st.columns(min(len(gf), 3))
+            for i, (d, data) in enumerate(gf.items()):
+                with dl_cols[i % 3]:
+                    w = data.get('warnings', [])
+                    ic = "⚠️" if w else "📄"
                     st.download_button(
-                        f"{icon} كراس {day}",
+                        f"{ic} كراس {d}",
                         data=data['bytes'],
-                        file_name=f"كراس_{day}.docx",
-                        mime=(
-                            "application/vnd.openxmlformats-"
-                            "officedocument.wordprocessingml.document"
-                        ),
+                        file_name=f"كراس_{d}.docx",
+                        mime="application/vnd.openxmlformats-"
+                             "officedocument.wordprocessingml.document",
                         use_container_width=True,
-                        key=f"dl_{day}",
+                        key=f"dl_{d}",
                     )
-
-                    if warns:
-                        st.caption(
-                            f"⚠ بدون مذكرة: {', '.join(set(warns))}"
-                        )
+                    if w:
+                        st.caption(f"⚠ {', '.join(set(w))}")
 
 
-# ══════════════════════════════════════════════
-#  التبويب 3: المعاينة
-# ══════════════════════════════════════════════
+# ──────────────────────────────────────
+#  تبويب 3: معاينة
+# ──────────────────────────────────────
 
 with tab3:
-    gen = st.session_state.generated_files
+    gf = st.session_state.generated_files
 
-    if not gen:
-        st.info("📅 قم بتوليد الكراسات أولاً من التبويب السابق")
+    if not gf:
+        st.info("📅 ولّد الكراسات أولاً")
     else:
-        day_choice = st.selectbox(
-            "اختر اليوم للمعاينة",
-            list(gen.keys()),
-            key="preview_day"
-        )
+        day_pick = st.selectbox("اختر اليوم", list(gf.keys()))
 
-        if day_choice:
-            data = gen[day_choice]
+        if day_pick:
+            data = gf[day_pick]
             sessions = data['sessions']
-            warnings = data.get('warnings', [])
 
-            st.markdown(f"## 📋 كراس يوم {day_choice}")
+            st.markdown(f"## 📋 كراس يوم {day_pick}")
 
-            if warnings:
+            if data.get('warnings'):
                 st.warning(
-                    f"⚠️ مواد بدون مذكرة: "
-                    f"**{', '.join(set(warnings))}**"
+                    f"⚠️ بدون مذكرة: "
+                    f"**{', '.join(set(data['warnings']))}**"
                 )
 
-            # فصل الفترات
             morning = [s for s in sessions if s['الفترة'] == 'صباحية']
             evening = [s for s in sessions if s['الفترة'] == 'مسائية']
 
-            for period_name, period_sessions in [
+            for pname, plist in [
                 ("☀️ الفترة الصباحية", morning),
                 ("🌙 الفترة المسائية", evening),
             ]:
-                if not period_sessions:
+                if not plist:
                     continue
 
-                st.markdown(f"### {period_name}")
+                st.markdown(f"### {pname}")
 
-                for s in period_sessions:
+                for s in plist:
                     typ = s['نوع']
+                    css = {
+                        'روتيني': 'slot-routine',
+                        'تعليمي': 'slot-teach',
+                        'ناقص':   'slot-warn',
+                    }.get(typ, 'slot-routine')
 
-                    if typ == 'روتيني':
-                        css = "session-routine"
-                        icon = "⏰"
+                    icon = {'روتيني':'⏰','تعليمي':'📖','ناقص':'⚠️'}.get(typ,'⏰')
+
+                    domain = s.get('المجال', '—')
+                    badge = domain_badge(domain) if domain != '—' else ''
+
+                    extra = ''
+                    if typ == 'تعليمي':
+                        extra = (
+                            f"<br><small>📝 {s['الموضوع']}</small>"
+                            f"<br><small>🎯 {s['الكفاءة']}</small>"
+                        )
                     elif typ == 'ناقص':
-                        css = "session-warn"
-                        icon = "⚠️"
-                    else:
-                        css = "session-teach"
-                        icon = "📖"
-
-                    topic = s.get('الموضوع', '—')
-                    indic = s.get('الكفاءة', '—')
+                        extra = "<br><small>⚠ لا توجد مذكرة</small>"
 
                     st.markdown(f"""
-                    <div class="session-row {css}">
+                    <div class="slot {css}">
                         <span style="font-size:1.3rem">{icon}</span>
                         <div style="flex:1">
                             <strong>{s['النشاط']}</strong>
-                            <span style="color:#888;">({s['المدة']})</span>
-                            {f'<br><small>📝 {topic}</small>' if typ == 'تعليمي' else ''}
-                            {f'<br><small>🎯 {indic}</small>' if typ == 'تعليمي' else ''}
+                            <span style="color:#888">({s['المدة']})</span>
+                            {badge}
+                            {extra}
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
-                st.markdown("")
 
-
-# ══════════════════════════════════════════════
-#  التبويب 4: التوقيت الأسبوعي
-# ══════════════════════════════════════════════
+# ──────────────────────────────────────
+#  تبويب 4: التوقيت الأسبوعي
+# ──────────────────────────────────────
 
 with tab4:
-    st.markdown("### 📊 التوقيت الأسبوعي للتحضيري")
+    st.markdown("### 📊 التوقيت الأسبوعي")
 
     view_day = st.selectbox(
         "اختر اليوم",
         list(weekly_schedule.keys()),
-        key="schedule_view"
+        key="sched_day",
     )
 
     if view_day:
         plan = weekly_schedule[view_day]
-
         morning = [s for s in plan if s.get('الفترة') == 'صباحية']
         evening = [s for s in plan if s.get('الفترة') == 'مسائية']
 
-        for name, sessions in [
-            ("☀️ الصباح", morning),
-            ("🌙 المساء", evening),
-        ]:
-            if not sessions:
+        for name, sl in [("☀️ صباح", morning), ("🌙 مساء", evening)]:
+            if not sl:
                 continue
-
             st.markdown(f"#### {name}")
 
-            # جدول بسيط
-            table_data = []
-            for i, s in enumerate(sessions, 1):
+            rows = []
+            for j, s in enumerate(sl, 1):
                 act = s['النشاط']
-                is_routine = act in ROUTINE_ACTIVITIES
-                table_data.append({
-                    "الرقم": i,
+                is_r = act in ROUTINE_ACTIVITIES
+                domain = get_domain_for(act) if not is_r else "—"
+                rows.append({
+                    "#": j,
                     "النشاط": act,
                     "المدة": s['المدة'],
-                    "النوع": "🔄 روتيني" if is_routine else "📖 تعليمي",
+                    "المجال": domain,
+                    "النوع": "🔄" if is_r else "📖",
                 })
 
             st.dataframe(
-                table_data,
+                rows,
                 use_container_width=True,
                 hide_index=True,
-                column_config={
-                    "الرقم": st.column_config.NumberColumn(width="small"),
-                    "النشاط": st.column_config.TextColumn(width="medium"),
-                    "المدة": st.column_config.TextColumn(width="small"),
-                    "النوع": st.column_config.TextColumn(width="small"),
-                },
             )
 
-    # إحصائيات عامة
+    # إحصائيات
     st.markdown("---")
-    st.markdown("#### 📈 إحصائيات عامة")
+    st.markdown("#### 📈 توزيع الحصص")
 
-    total_by_day = {
-        d: len([s for s in p if s['النشاط'] not in ROUTINE_ACTIVITIES])
-        for d, p in weekly_schedule.items()
-    }
+    _, counts = verify_schedule()
+    for subj, expected in SUBJECT_WEEKLY_COUNT.items():
+        actual = counts.get(subj, 0)
+        ok = "✅" if actual == expected else "❌"
+        domain = get_domain_for(subj)
+        st.markdown(
+            f"{ok} **{subj}** — "
+            f"{actual}/{expected} حصة — "
+            f"{domain_badge(domain)}",
+            unsafe_allow_html=True,
+        )
 
-    cols = st.columns(len(total_by_day))
-    for i, (d, c) in enumerate(total_by_day.items()):
-        with cols[i]:
-            st.metric(d, f"{c} حصة")
+
+# ──────────────────────────────────────
+#  تبويب 5: خريطة المجالات
+# ──────────────────────────────────────
+
+with tab5:
+    st.markdown("### 🗺️ المجالات التعليمية")
+
+    # تجميع المواد حسب المجال
+    domains = {}
+    for subj, dom in DOMAIN_MAPPING.items():
+        domains.setdefault(dom, []).append(subj)
+
+    cols5 = st.columns(2)
+
+    for i, (dom, subjects) in enumerate(domains.items()):
+        color = DOMAIN_COLORS.get(dom, "#666")
+        total_h = sum(SUBJECT_WEEKLY_COUNT.get(s, 0) for s in subjects)
+
+        with cols5[i % 2]:
+            st.markdown(
+                f'<div style="border:2px solid {color};'
+                f'border-radius:12px;padding:1rem;margin:0.5rem 0;">'
+                f'<h4 style="color:{color};text-align:center;">'
+                f'{dom} ({total_h} حصة/أسبوع)</h4>',
+                unsafe_allow_html=True,
+            )
+
+            for s in subjects:
+                cnt = SUBJECT_WEEKLY_COUNT.get(s, 0)
+                bar_width = cnt * 12
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;'
+                    f'gap:8px;margin:4px 0;direction:rtl;">'
+                    f'<span style="min-width:140px">{s}</span>'
+                    f'<div style="background:{color}44;'
+                    f'border-radius:4px;height:20px;'
+                    f'width:{bar_width}px;"></div>'
+                    f'<span style="color:{color};font-weight:700;">'
+                    f'{cnt}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    # ملخص كلي
+    st.markdown("---")
+    grand = sum(SUBJECT_WEEKLY_COUNT.values())
+    st.markdown(
+        f'<div class="card card-blue">'
+        f'<h4>المجموع الأسبوعي</h4>'
+        f'<div class="num">{grand} حصة تعليمية</div>'
+        f'<small>{len(SUBJECT_WEEKLY_COUNT)} مادة في '
+        f'{len(domains)} مجالات</small></div>',
+        unsafe_allow_html=True,
+    )
