@@ -21,27 +21,70 @@ def clean_text(text: str) -> str:
 
 
 def normalize_name(raw: str) -> str:
+    """
+    توحيد اسم المادة ليطابق التوقيت
+    البحث يتم بثلاث طرق: مطابقة تامة → جزئية → إرجاع كما هو
+    """
     cleaned = clean_text(raw)
+    if not cleaned:
+        return cleaned
+
+    # 1) مطابقة تامة
     if cleaned in NAME_MAPPING:
         return NAME_MAPPING[cleaned]
+
+    # 2) مطابقة بدون "ال" التعريف
+    without_al = re.sub(r'^ال', '', cleaned)
+    if without_al in NAME_MAPPING:
+        return NAME_MAPPING[without_al]
+
+    # 3) بحث جزئي (المادة تحتوي على المفتاح أو العكس)
+    cleaned_lower = cleaned
     for key, val in NAME_MAPPING.items():
-        if key in cleaned or cleaned in key:
+        if key in cleaned_lower or cleaned_lower in key:
             return val
+
+    # 4) بحث بالكلمات الجذرية
+    root_map = {
+        "علم":      "ت علمية وتكنولوجية",
+        "تكنولوج":  "ت علمية وتكنولوجية",
+        "إسلام":    "ت إسلامية",
+        "مدن":      "ت مدنية",
+        "بدن":      "ت بدنية",
+        "إيقاع":    "ت إيقاعية",
+        "تشكيل":    "تربية تشكيلية",
+        "رياض":     "رياضيات",
+        "قراءة":    "مبادئ القراءة",
+        "تخطيط":    "تخطيط",
+        "كتابة":    "تخطيط",
+        "شفوي":     "تعبير شفوي",
+        "تعبير":    "تعبير شفوي",
+        "مسرح":     "مسرح وعرائس",
+        "موسيق":    "موسيقى وإنشاد",
+        "إنشاد":    "موسيقى وإنشاد",
+        "رسم":      "تربية تشكيلية",
+        "أشغال":    "تربية تشكيلية",
+    }
+    for root, target in root_map.items():
+        if root in cleaned:
+            return target
+
     return cleaned
 
 
 # ═══════════════════════════════════════
-#  أنماط Regex
+#  أنماط Regex مرنة
 # ═══════════════════════════════════════
 
 RE_ACT = re.compile(
-    r'^(?:النشاط|المادة|مجال\s*التعل[ـم]*)\s*[:/\-]\s*(.*)'
+    r'^(?:النشاط|المادة|مجال\s*التعل[ـم]*|الميدان)\s*[:/\-]\s*(.*)',
 )
 RE_TOP = re.compile(
-    r'^(?:الموضوع|الوحدة|عنوان\s*الدرس)\s*[:/\-]\s*(.*)'
+    r'^(?:الموضوع|الوحدة|عنوان\s*الدرس|المحتوى)\s*[:/\-]\s*(.*)',
 )
 RE_IND = re.compile(
-    r'^(?:مؤشر\s*الكفا[ـءئ]*ة|الكفاءة\s*المستهدفة)\s*[:/\-]\s*(.*)'
+    r'^(?:مؤشر\s*الكفا[ـءئ]*ة|الكفاءة\s*المستهدفة'
+    r'|مؤشرات?\s*الكفاءة)\s*[:/\-]\s*(.*)',
 )
 
 
@@ -131,12 +174,8 @@ def _extract_tables(doc, existing: dict = None) -> dict:
 def extract_all_lessons(file_bytes: bytes) -> dict:
     """
     استخراج كل الدروس من ملف المذكرات
-
-    Args:
-        file_bytes: محتوى ملف docx كـ bytes
-
-    Returns:
-        قاموس {اسم_المادة: [{'موضوع': ..., 'كفاءة': ...}, ...]}
+    المدخل: bytes من ملف docx
+    المخرج: {'اسم_المادة': [{'موضوع': ..., 'كفاءة': ...}, ...]}
     """
     doc = Document(BytesIO(file_bytes))
     lessons = _extract_paragraphs(doc)
