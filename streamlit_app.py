@@ -98,7 +98,7 @@ def hf_text_call(token, model, prompt):
 # ║ قراءة الملفات                                        ║
 # ╚══════════════════════════════════════════════════════╝
 
-def compress_image(data, max_size=1200, quality=80):
+def compress_image(data, max_size=800, quality=65):
     img = Image.open(BytesIO(data))
     if img.mode == 'RGBA':
         img = img.convert('RGB')
@@ -155,7 +155,7 @@ def pdf_to_images(file_bytes):
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         images = []
         for i, page in enumerate(doc):
-            mat = fitz.Matrix(2.0, 2.0)
+            mat = fitz.Matrix(1.2, 1.2)
             pix = page.get_pixmap(matrix=mat)
             img_bytes = pix.tobytes("jpeg")
             images.append({"page": i + 1, "bytes": img_bytes, "b64": to_base64(img_bytes)})
@@ -262,7 +262,7 @@ def ai_results_to_db(parsed_list):
 # ╚══════════════════════════════════════════════════════╝
 
 # حدود النص حسب المحرك
-GROQ_TEXT_LIMIT = 25000  # Groq يدعم سياق طويل
+GROQ_TEXT_LIMIT = 15000  # Groq يدعم سياق طويل
 HF_TEXT_LIMIT = 15000    # HF أقل
 
 
